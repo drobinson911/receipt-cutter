@@ -509,6 +509,9 @@
     }
 
     // ─── PDF Generation Pipeline ─────────────────────────────────────────────
+    // processReceipt() orchestrates: canvas draw → row brightness → cut points
+    // → column calculation → jsPDF page layout → JPEG strip images → blob URL.
+    // updateProgress() and sleep() are helpers for async UI feedback.
 
     function updateProgress(text, percent) {
       progressText.textContent = text;
