@@ -84,6 +84,74 @@ export class CaptureSession {
   }
 
   /**
+   * Add a photo from a canvas element (e.g., from camera viewfinder capture).
+   * @param {HTMLCanvasElement} sourceCanvas - The captured frame
+   * @param {string} [fileName] - Optional filename, defaults to timestamp
+   * @returns {Promise<void>}
+   */
+  async addPhotoFromCanvas(sourceCanvas, fileName) {
+    const name = fileName || `capture_${Date.now()}.jpg`;
+
+    // Downsample for analysis (~800px wide)
+    const ANALYSIS_WIDTH = 800;
+    const scale = Math.min(1, ANALYSIS_WIDTH / sourceCanvas.width);
+    const smallW = Math.round(sourceCanvas.width * scale);
+    const smallH = Math.round(sourceCanvas.height * scale);
+
+    const smallCanvas = document.createElement('canvas');
+    smallCanvas.width = smallW;
+    smallCanvas.height = smallH;
+    const smallCtx = smallCanvas.getContext('2d');
+    smallCtx.drawImage(sourceCanvas, 0, 0, smallW, smallH);
+
+    // Auto-crop on downsampled version
+    const smallData = smallCtx.getImageData(0, 0, smallW, smallH);
+    const cropRect = autoCrop(smallData);
+
+    // Scale crop rectangle back to original resolution
+    const invScale = 1 / scale;
+    const origX = Math.round(cropRect.x * invScale);
+    const origY = Math.round(cropRect.y * invScale);
+    const origW = Math.round(cropRect.w * invScale);
+    const origH = Math.round(cropRect.h * invScale);
+
+    // Clamp to source bounds
+    const clampedW = Math.min(origW, sourceCanvas.width - origX);
+    const clampedH = Math.min(origH, sourceCanvas.height - origY);
+
+    // Crop from the original full-res canvas
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = clampedW;
+    croppedCanvas.height = clampedH;
+    const croppedCtx = croppedCanvas.getContext('2d');
+    croppedCtx.drawImage(sourceCanvas, origX, origY, clampedW, clampedH, 0, 0, clampedW, clampedH);
+
+    // Compute brightness on the cropped canvas
+    const brightness = getRowBrightness(croppedCanvas);
+
+    // Clean up
+    smallCanvas.width = 0;
+    smallCanvas.height = 0;
+
+    // Create a placeholder image for originalImg
+    const originalImg = new Image();
+    originalImg.src = sourceCanvas.toDataURL('image/jpeg', 0.92);
+    await new Promise(resolve => { originalImg.onload = resolve; });
+
+    const photo = {
+      id: this.nextId++,
+      originalImg,
+      croppedCanvas,
+      brightness,
+      fileName: name,
+    };
+
+    this.photos.push(photo);
+
+    if (this.onChange) this.onChange();
+  }
+
+  /**
    * Remove a photo by its id.
    * @param {number} id
    */
