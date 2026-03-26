@@ -1,4 +1,4 @@
-const CACHE_NAME = 'receipt-cutter-v1';
+const CACHE_NAME = 'receipt-cutter-v2';
 
 const LOCAL_ASSETS = [
   '/',
@@ -7,6 +7,7 @@ const LOCAL_ASSETS = [
   '/js/image-processing.js',
   '/js/pdf-generator.js',
   '/js/capture-session.js',
+  '/js/camera-viewfinder.js',
   '/icons/icon-192.svg',
   '/icons/icon-512.svg',
 ];
