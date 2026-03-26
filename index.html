@@ -360,6 +360,129 @@
       color: #854d0e;
       margin-bottom: 10px;
     }
+
+    /* ─── Camera viewfinder ──────────────────────────────────────── */
+    #viewfinder-section {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      z-index: 1000;
+    }
+
+    #viewfinder-section video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    #viewfinder-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .viewfinder-controls {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+      padding: 24px 16px;
+      padding-bottom: max(24px, env(safe-area-inset-bottom));
+      background: linear-gradient(transparent, rgba(0,0,0,0.6));
+    }
+
+    .viewfinder-top-controls {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px;
+      padding-top: max(16px, env(safe-area-inset-top));
+      background: linear-gradient(rgba(0,0,0,0.4), transparent);
+    }
+
+    .vf-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+      cursor: pointer;
+      border-radius: 50%;
+      color: #fff;
+      background: rgba(255,255,255,0.2);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+    }
+
+    .vf-btn-close {
+      width: 40px;
+      height: 40px;
+      font-size: 1.2rem;
+    }
+
+    .vf-btn-flash, .vf-btn-ghost {
+      width: 48px;
+      height: 48px;
+      font-size: 1.3rem;
+    }
+
+    .vf-btn-flash.active, .vf-btn-ghost.active {
+      background: rgba(255,255,255,0.5);
+    }
+
+    .vf-btn-capture {
+      width: 72px;
+      height: 72px;
+      background: #fff;
+      border: 4px solid rgba(255,255,255,0.5);
+    }
+
+    .vf-btn-capture:active {
+      transform: scale(0.9);
+    }
+
+    .vf-btn-capture-inner {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: #fff;
+    }
+
+    .vf-photo-count {
+      color: #fff;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .vf-flash-effect {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #fff;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.05s;
+    }
+
+    .vf-flash-effect.active {
+      opacity: 0.8;
+    }
   </style>
 </head>
 <body>
@@ -369,6 +492,22 @@
   </header>
 
   <main>
+    <!-- Camera viewfinder (fullscreen overlay) -->
+    <div id="viewfinder-section">
+      <video id="viewfinder-video" autoplay playsinline muted></video>
+      <canvas id="viewfinder-overlay"></canvas>
+      <div class="vf-flash-effect" id="vf-flash"></div>
+      <div class="viewfinder-top-controls">
+        <button class="vf-btn vf-btn-close" id="vf-close" title="Close camera">✕</button>
+        <span class="vf-photo-count" id="vf-photo-count"></span>
+      </div>
+      <div class="viewfinder-controls">
+        <button class="vf-btn vf-btn-flash" id="vf-flash-btn" title="Toggle flash" style="display:none">⚡</button>
+        <button class="vf-btn vf-btn-capture" id="vf-capture" title="Take photo"><div class="vf-btn-capture-inner"></div></button>
+        <button class="vf-btn vf-btn-ghost" id="vf-ghost-btn" title="Toggle overlap guide" style="display:none">👁</button>
+      </div>
+    </div>
+
     <!-- Upload area -->
     <div class="card" id="upload-card">
       <div id="upload-area">
@@ -440,6 +579,7 @@
     import { CaptureSession } from './js/capture-session.js';
     import { stitchImages } from './js/image-processing.js';
     import { generatePdf } from './js/pdf-generator.js';
+    import { CameraViewfinder } from './js/camera-viewfinder.js';
 
     // ─── State ───────────────────────────────────────────────────────────────
     const session = new CaptureSession();
@@ -477,6 +617,86 @@
     // All sections that get toggled
     const allSections = [uploadCard, sessionSection, stitchPreviewSection, progressSection, resultSection, resetLink];
 
+    // ─── Viewfinder DOM refs ─────────────────────────────────────────────────
+    const viewfinderSection = document.getElementById('viewfinder-section');
+    const viewfinderVideo   = document.getElementById('viewfinder-video');
+    const viewfinderOverlay = document.getElementById('viewfinder-overlay');
+    const vfFlash           = document.getElementById('vf-flash');
+    const vfClose           = document.getElementById('vf-close');
+    const vfCapture         = document.getElementById('vf-capture');
+    const vfFlashBtn        = document.getElementById('vf-flash-btn');
+    const vfGhostBtn        = document.getElementById('vf-ghost-btn');
+    const vfPhotoCount      = document.getElementById('vf-photo-count');
+
+    // ─── Camera Viewfinder ───────────────────────────────────────────────────
+    let viewfinder = null;
+
+    function updateVfPhotoCount() {
+      const count = session.photos.length;
+      vfPhotoCount.textContent = count > 0 ? `${count} photo${count !== 1 ? 's' : ''}` : '';
+      vfGhostBtn.style.display = count > 0 ? '' : 'none';
+    }
+
+    async function openViewfinder() {
+      viewfinder = new CameraViewfinder({
+        video: viewfinderVideo,
+        overlayCanvas: viewfinderOverlay,
+        onCapture: async (canvas) => {
+          vfFlash.classList.add('active');
+          setTimeout(() => vfFlash.classList.remove('active'), 150);
+          await session.addPhotoFromCanvas(canvas);
+          updateVfPhotoCount();
+        },
+        getLastPhoto: () => {
+          const photos = session.photos;
+          if (photos.length === 0) return null;
+          return photos[photos.length - 1].croppedCanvas;
+        },
+      });
+
+      try {
+        await viewfinder.open();
+        viewfinderSection.style.display = 'block';
+        updateVfPhotoCount();
+        vfFlashBtn.style.display = viewfinder.flashSupported ? '' : 'none';
+      } catch (err) {
+        console.error('Camera failed:', err);
+        viewfinder = null;
+        inputCamera.click();
+      }
+    }
+
+    function closeViewfinder() {
+      if (viewfinder) {
+        viewfinder.close();
+        viewfinder = null;
+      }
+      viewfinderSection.style.display = 'none';
+      if (session.photos.length > 0) {
+        showSection(sessionSection);
+      } else {
+        showSection(uploadCard);
+      }
+    }
+
+    vfClose.addEventListener('click', closeViewfinder);
+
+    vfCapture.addEventListener('click', () => {
+      if (viewfinder) viewfinder.captureFrame();
+    });
+
+    vfFlashBtn.addEventListener('click', async () => {
+      if (!viewfinder) return;
+      const on = await viewfinder.toggleFlash();
+      vfFlashBtn.classList.toggle('active', on);
+    });
+
+    vfGhostBtn.addEventListener('click', () => {
+      if (!viewfinder) return;
+      const visible = viewfinder.toggleGhost();
+      vfGhostBtn.classList.toggle('active', visible);
+    });
+
     function showSection(section) {
       allSections.forEach(s => s.style.display = 'none');
       section.style.display = 'block';
@@ -502,7 +722,10 @@
     document.body.appendChild(addFileInput);
 
     // ─── Upload Handling (initial) ───────────────────────────────────────────
-    btnCamera.addEventListener('click', () => inputCamera.click());
+    btnCamera.addEventListener('click', async () => {
+      showSection(sessionSection);
+      await openViewfinder();
+    });
     btnFile.addEventListener('click',   () => inputFile.click());
 
     inputCamera.addEventListener('change', async e => {
@@ -543,7 +766,9 @@
     }
 
     // ─── Session "Add" buttons ───────────────────────────────────────────────
-    btnAddPhoto.addEventListener('click', () => addCameraInput.click());
+    btnAddPhoto.addEventListener('click', async () => {
+      await openViewfinder();
+    });
     btnAddFile.addEventListener('click',  () => addFileInput.click());
 
     addCameraInput.addEventListener('change', async e => {
