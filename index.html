@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Receipt Cutter</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --secondary: #64748b;
+      --border: #cbd5e1;
+      --border-dashed: #94a3b8;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --success: #16a34a;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px;
+    }
+
+    header {
+      text-align: center;
+      padding: 24px 0 20px;
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+
+    header p {
+      margin-top: 6px;
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+
+    /* Upload area */
+    #upload-area {
+      border: 2px dashed var(--border-dashed);
+      border-radius: var(--radius);
+      padding: 32px 20px;
+      text-align: center;
+      transition: background 0.15s, border-color 0.15s;
+    }
+
+    #upload-area.drag-over {
+      background: #eff6ff;
+      border-color: var(--primary);
+    }
+
+    .upload-icon {
+      font-size: 3rem;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    .upload-hint {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+    }
+
+    .btn-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    @media (min-width: 480px) {
+      .btn-group {
+        flex-direction: row;
+        justify-content: center;
+      }
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px 20px;
+      min-height: 48px;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+      text-decoration: none;
+      width: 100%;
+    }
+
+    @media (min-width: 480px) {
+      .btn {
+        width: auto;
+        min-width: 160px;
+      }
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .btn-secondary {
+      background: #f1f5f9;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      background: #e2e8f0;
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: #fff;
+    }
+
+    .btn-success:hover {
+      background: #15803d;
+    }
+
+    /* Hidden inputs */
+    input[type="file"] {
+      display: none;
+    }
+
+    /* Preview section */
+    #preview-section {
+      display: none;
+    }
+
+    .preview-layout {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .preview-thumb {
+      flex-shrink: 0;
+      width: 80px;
+    }
+
+    .preview-thumb img {
+      width: 80px;
+      height: 120px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .preview-info {
+      flex: 1;
+    }
+
+    .preview-info h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      word-break: break-all;
+    }
+
+    .meta-row {
+      display: flex;
+      gap: 16px;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    /* Progress section */
+    #progress-section {
+      display: none;
+    }
+
+    .progress-bar-wrap {
+      background: #e2e8f0;
+      border-radius: 99px;
+      height: 10px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: var(--primary);
+      border-radius: 99px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+
+    .progress-text {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Result section */
+    #result-section {
+      display: none;
+    }
+
+    .result-info {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      margin-top: 10px;
+    }
+
+    /* Reset link */
+    #reset-link {
+      display: none;
+      text-align: center;
+      margin-top: 4px;
+    }
+
+    #reset-link a {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Receipt Cutter</h1>
+    <p>Slice long receipts into strips and save as a letter-size PDF</p>
+  </header>
+
+  <main>
+    <!-- Upload area -->
+    <div class="card">
+      <div id="upload-area">
+        <span class="upload-icon">🧾</span>
+        <p class="upload-hint">Drag &amp; drop a receipt image here, or use the buttons below</p>
+        <div class="btn-group">
+          <button class="btn btn-primary" id="btn-camera">📷 Take Photo</button>
+          <button class="btn btn-secondary" id="btn-file">📁 Upload File</button>
+        </div>
+      </div>
+      <input type="file" id="input-camera" accept="image/*" capture="environment" />
+      <input type="file" id="input-file" accept="image/jpeg,image/png,image/webp,image/heic" />
+    </div>
+
+    <!-- Preview section -->
+    <div class="card" id="preview-section">
+      <h2>Receipt Preview</h2>
+      <div class="preview-layout">
+        <div class="preview-thumb">
+          <img id="preview-img" src="" alt="Receipt preview" />
+        </div>
+        <div class="preview-info">
+          <h3 id="preview-filename"></h3>
+          <div class="meta-row">
+            <span id="preview-dims"></span>
+            <span id="preview-size"></span>
+          </div>
+          <button class="btn btn-primary" id="btn-convert" style="width:100%">Convert to PDF</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Progress section -->
+    <div class="card" id="progress-section">
+      <h2>Processing…</h2>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+      <p class="progress-text" id="progress-text">Starting…</p>
+    </div>
+
+    <!-- Result section -->
+    <div class="card" id="result-section">
+      <h2>PDF Ready</h2>
+      <div class="btn-group">
+        <button class="btn btn-success" id="btn-download">⬇️ Download PDF</button>
+        <button class="btn btn-secondary" id="btn-print">🖨️ Print</button>
+      </div>
+      <p class="result-info" id="result-info"></p>
+    </div>
+
+    <!-- Reset link -->
+    <div id="reset-link">
+      <a id="btn-reset">Process another receipt</a>
+    </div>
+  </main>
+
+  <script>
+    // ─── Constants ───────────────────────────────────────────────────────────
+    const DPI = 300;
+    const PAGE_W_IN = 8.5;
+    const PAGE_H_IN = 11.0;
+    const MARGIN_IN = 0.35;
+    const GAP_IN = 0.15;
+    const SEARCH_RANGE_IN = 0.75;
+    const BRIGHTNESS_THRESHOLD = 240;
+
+    const PAGE_W      = Math.round(PAGE_W_IN      * DPI);  // 2550
+    const PAGE_H      = Math.round(PAGE_H_IN      * DPI);  // 3300
+    const MARGIN      = Math.round(MARGIN_IN      * DPI);  // 105
+    const GAP         = Math.round(GAP_IN         * DPI);  //  45
+    const USABLE_H    = PAGE_H - 2 * MARGIN;               // 3090
+    const SEARCH_RANGE = Math.round(SEARCH_RANGE_IN * DPI); // 225
+
+    // ─── Core Processing Functions ───────────────────────────────────────────
+
+    /**
+     * Returns a Float32Array of average brightness per row.
+     * Each pixel's brightness = (R + G + B) / 3; row brightness = mean across all pixels.
+     */
+    function getRowBrightness(canvas) {
+      const ctx = canvas.getContext('2d');
+      const { width, height } = canvas;
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data; // RGBA flat array
+      const rowBrightness = new Float32Array(height);
+
+      for (let y = 0; y < height; y++) {
+        let sum = 0;
+        const rowStart = y * width * 4;
+        for (let x = 0; x < width; x++) {
+          const i = rowStart + x * 4;
+          sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+        }
+        rowBrightness[y] = sum / width;
+      }
+      return rowBrightness;
+    }
+
+    /**
+     * Finds cut points between text lines.
+     * For each ideal cut at targetHeight intervals, searches ±searchRange for
+     * the nearest row where brightness > brightnessThreshold.
+     * Falls back to ideal cut if no bright row is found.
+     * Returns array starting with 0, ending with imgHeight.
+     */
+    function findCutPoints(rowBrightness, imgHeight, targetHeight, searchRange, brightnessThreshold) {
+      const cuts = [0];
+      let pos = 0;
+
+      while (pos + targetHeight < imgHeight) {
+        const idealCut = pos + targetHeight;
+        const searchStart = Math.max(0, idealCut - searchRange);
+        const searchEnd   = Math.min(imgHeight, idealCut + searchRange);
+
+        let bestCut = null;
+        for (let y = searchStart; y < searchEnd; y++) {
+          if (rowBrightness[y] > brightnessThreshold) {
+            if (bestCut === null || Math.abs(y - idealCut) < Math.abs(bestCut - idealCut)) {
+              bestCut = y;
+            }
+          }
+        }
+
+        if (bestCut !== null) {
+          cuts.push(bestCut);
+          pos = bestCut;
+        } else {
+          cuts.push(idealCut);
+          pos = idealCut;
+        }
+      }
+
+      cuts.push(imgHeight);
+      return cuts;
+    }
+
+    /**
+     * Calculates how many strip columns fit side-by-side on one page.
+     * Increments cols while: 2*margin + cols*stripWidth + (cols-1)*gap <= pageWidth
+     */
+    function calcColumnsPerPage(stripWidth, pageWidth, margin, gap) {
+      let cols = 1;
+      while (2 * margin + (cols + 1) * stripWidth + cols * gap <= pageWidth) {
+        cols++;
+      }
+      return cols;
+    }
+
+    // ─── State ───────────────────────────────────────────────────────────────
+    let loadedImage    = null;  // HTMLImageElement
+    let loadedFileName = '';    // filename without extension
+    let generatedPdfUrl = null; // blob URL for generated PDF
+
+    // ─── DOM refs ────────────────────────────────────────────────────────────
+    const uploadArea      = document.getElementById('upload-area');
+    const inputCamera     = document.getElementById('input-camera');
+    const inputFile       = document.getElementById('input-file');
+    const btnCamera       = document.getElementById('btn-camera');
+    const btnFile         = document.getElementById('btn-file');
+    const previewSection  = document.getElementById('preview-section');
+    const previewImg      = document.getElementById('preview-img');
+    const previewFilename = document.getElementById('preview-filename');
+    const previewDims     = document.getElementById('preview-dims');
+    const previewSize     = document.getElementById('preview-size');
+    const btnConvert      = document.getElementById('btn-convert');
+    const progressSection = document.getElementById('progress-section');
+    const progressBar     = document.getElementById('progress-bar');
+    const progressText    = document.getElementById('progress-text');
+    const resultSection   = document.getElementById('result-section');
+    const resultInfo      = document.getElementById('result-info');
+    const btnDownload     = document.getElementById('btn-download');
+    const btnPrint        = document.getElementById('btn-print');
+    const resetLink       = document.getElementById('reset-link');
+    const btnReset        = document.getElementById('btn-reset');
+
+    // ─── Upload Handling ─────────────────────────────────────────────────────
+
+    btnCamera.addEventListener('click', () => inputCamera.click());
+    btnFile.addEventListener('click',   () => inputFile.click());
+
+    inputCamera.addEventListener('change', e => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
+    inputFile.addEventListener('change', e => {
+      if (e.target.files[0]) handleFile(e.target.files[0]);
+    });
+
+    // Drag and drop
+    uploadArea.addEventListener('dragover', e => {
+      e.preventDefault();
+      uploadArea.classList.add('drag-over');
+    });
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('drag-over');
+    });
+    uploadArea.addEventListener('drop', e => {
+      e.preventDefault();
+      uploadArea.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        handleFile(file);
+      }
+    });
+
+    function handleFile(file) {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const img = new Image();
+        img.onload = () => showPreview(img, file);
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function showPreview(img, file) {
+      loadedImage    = img;
+      loadedFileName = file.name.replace(/\.[^.]+$/, ''); // strip extension
+
+      previewImg.src          = img.src;
+      previewFilename.textContent = file.name;
+      previewDims.textContent = `${img.naturalWidth} × ${img.naturalHeight} px`;
+      previewSize.textContent = formatBytes(file.size);
+
+      uploadArea.closest('.card').style.display = 'none';
+      previewSection.style.display = 'block';
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024)       return bytes + ' B';
+      if (bytes < 1024*1024)  return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024*1024)).toFixed(1) + ' MB';
+    }
+
+    // ─── PDF Generation Pipeline ─────────────────────────────────────────────
+
+    function updateProgress(text, percent) {
+      progressText.textContent = text;
+      progressBar.style.width  = percent + '%';
+    }
+
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    btnConvert.addEventListener('click', processReceipt);
+
+    async function processReceipt() {
+      btnConvert.disabled = true;
+      previewSection.style.display = 'none';
+      progressSection.style.display = 'block';
+      updateProgress('Loading image…', 5);
+      await sleep(50);
+
+      // 1. Draw image to canvas
+      const canvas = document.createElement('canvas');
+      canvas.width  = loadedImage.naturalWidth;
+      canvas.height = loadedImage.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(loadedImage, 0, 0);
+
+      updateProgress('Analysing brightness…', 15);
+      await sleep(50);
+
+      // 2. Row brightness
+      const rowBrightness = getRowBrightness(canvas);
+
+      updateProgress('Finding cut points…', 30);
+      await sleep(50);
+
+      // 3. Cut points
+      const imgW = canvas.width;
+      const imgH = canvas.height;
+      const cutPoints = findCutPoints(rowBrightness, imgH, USABLE_H, SEARCH_RANGE, BRIGHTNESS_THRESHOLD);
+      const numStrips = cutPoints.length - 1;
+
+      // 4. Columns per page
+      const colsPerPage = calcColumnsPerPage(imgW, PAGE_W, MARGIN, GAP);
+
+      updateProgress('Creating PDF…', 45);
+      await sleep(50);
+
+      // 5. Create jsPDF instance
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({
+        unit:   'px',
+        format: [PAGE_W, PAGE_H],
+        hotfixes: ['px_scaling'],
+      });
+
+      const numPages = Math.ceil(numStrips / colsPerPage);
+
+      for (let p = 0; p < numPages; p++) {
+        if (p > 0) doc.addPage([PAGE_W, PAGE_H]);
+
+        const pageStrips = [];
+        const stripStart = p * colsPerPage;
+        const stripEnd   = Math.min(stripStart + colsPerPage, numStrips);
+
+        // Extract strip canvases for this page
+        for (let s = stripStart; s < stripEnd; s++) {
+          const top    = cutPoints[s];
+          const bottom = cutPoints[s + 1];
+          const sh     = bottom - top;
+
+          const stripCanvas = document.createElement('canvas');
+          stripCanvas.width  = imgW;
+          stripCanvas.height = sh;
+          const sCtx = stripCanvas.getContext('2d');
+          sCtx.drawImage(canvas, 0, top, imgW, sh, 0, 0, imgW, sh);
+          pageStrips.push(stripCanvas);
+        }
+
+        // Center columns horizontally
+        const numCols     = pageStrips.length;
+        const totalColsW  = numCols * imgW + (numCols - 1) * GAP;
+        const xStart      = Math.round((PAGE_W - totalColsW) / 2);
+
+        for (let c = 0; c < numCols; c++) {
+          const x          = xStart + c * (imgW + GAP);
+          const y          = MARGIN;
+          const stripCanvas = pageStrips[c];
+          const imgData    = stripCanvas.toDataURL('image/jpeg', 0.92);
+          doc.addImage(imgData, 'JPEG', x, y, imgW, stripCanvas.height);
+        }
+
+        const pct = 45 + Math.round(((p + 1) / numPages) * 50);
+        updateProgress(`Rendering page ${p + 1} of ${numPages}…`, pct);
+        await sleep(30);
+      }
+
+      updateProgress('Finalising…', 97);
+      await sleep(50);
+
+      // 6. Create blob URL
+      const pdfBlob = doc.output('blob');
+      if (generatedPdfUrl) URL.revokeObjectURL(generatedPdfUrl);
+      generatedPdfUrl = URL.createObjectURL(pdfBlob);
+
+      updateProgress('Done!', 100);
+      await sleep(200);
+
+      progressSection.style.display = 'none';
+      resultSection.style.display   = 'block';
+      resetLink.style.display       = 'block';
+
+      resultInfo.textContent =
+        `${numPages} page${numPages !== 1 ? 's' : ''} · ` +
+        `${numStrips} strip${numStrips !== 1 ? 's' : ''} · ` +
+        `${colsPerPage} column${colsPerPage !== 1 ? 's' : ''} per page`;
+    }
+
+    // ─── Download & Print ─────────────────────────────────────────────────────
+
+    btnDownload.addEventListener('click', () => {
+      if (!generatedPdfUrl) return;
+      const a = document.createElement('a');
+      a.href     = generatedPdfUrl;
+      a.download = `receipt_${loadedFileName}_letter.pdf`;
+      a.click();
+    });
+
+    btnPrint.addEventListener('click', () => {
+      if (!generatedPdfUrl) return;
+      const printWindow = window.open(generatedPdfUrl);
+      if (printWindow) {
+        printWindow.addEventListener('load', () => printWindow.print());
+      }
+    });
+
+    // ─── Reset ────────────────────────────────────────────────────────────────
+
+    btnReset.addEventListener('click', () => {
+      // Clear state
+      loadedImage     = null;
+      loadedFileName  = '';
+      if (generatedPdfUrl) {
+        URL.revokeObjectURL(generatedPdfUrl);
+        generatedPdfUrl = null;
+      }
+
+      // Reset file inputs
+      inputCamera.value = '';
+      inputFile.value   = '';
+
+      // Reset UI
+      previewImg.src          = '';
+      previewFilename.textContent = '';
+      previewDims.textContent = '';
+      previewSize.textContent = '';
+      progressBar.style.width = '0%';
+      progressText.textContent = 'Starting…';
+      btnConvert.disabled     = false;
+      resultInfo.textContent  = '';
+
+      // Show/hide sections
+      uploadArea.closest('.card').style.display = 'block';
+      previewSection.style.display  = 'none';
+      progressSection.style.display = 'none';
+      resultSection.style.display   = 'none';
+      resetLink.style.display       = 'none';
+    });
+  </script>
+</body>
+</html>
