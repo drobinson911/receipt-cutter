@@ -534,3 +534,152 @@ export function stackImages(images, createCanvasFn) {
 
   return { canvas: out };
 }
+
+/**
+ * Stitch multiple images using 2D block matching with scale normalization.
+ * images: array of { canvas, brightness } objects, ordered top-to-bottom.
+ * mode: 'smart' (2D matching, default) or 'stack' (simple vertical stack).
+ * createCanvasFn: optional factory for canvas creation (for testing).
+ * Returns { canvas, warnings, pairResults }.
+ */
+export function stitchImages(images, mode = 'smart', createCanvasFn) {
+  const _createCanvas = createCanvasFn || (() => document.createElement('canvas'));
+
+  if (images.length === 0) return { canvas: null, warnings: ['No images provided'], pairResults: [] };
+  if (images.length === 1) return { canvas: images[0].canvas, warnings: [], pairResults: [] };
+
+  const warnings = [];
+
+  // Scale normalization
+  const scaleInfo = normalizeScales(images.map(img => img.canvas));
+
+  // Create scaled canvases
+  const scaled = images.map((img, i) => {
+    const { width: newW, height: newH } = scaleInfo.scaledDimensions[i];
+    const factor = scaleInfo.scaleFactors[i];
+
+    if (factor === 1) return img.canvas;
+
+    warnings.push(`Photo ${i + 1} scaled ${factor > 1 ? 'up' : 'down'} by ${Math.round(Math.abs(factor - 1) * 100)}% to match receipt width.`);
+
+    const c = _createCanvas();
+    c.width = newW;
+    c.height = newH;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img.canvas, 0, 0, newW, newH);
+    return c;
+  });
+
+  const width = scaleInfo.targetWidth;
+
+  // Stack mode
+  if (mode === 'stack') {
+    const result = stackImages(scaled, _createCanvas);
+    return { canvas: result.canvas, warnings, pairResults: [] };
+  }
+
+  // Smart stitch mode
+  const pairResults = [];
+  const offsets = [{ x: 0, y: 0 }];
+  const fallbackPairs = [];
+
+  for (let i = 1; i < scaled.length; i++) {
+    const prevCanvas = scaled[i - 1];
+    const currCanvas = scaled[i];
+
+    // Get ImageData for 2D matching
+    const prevCtx = prevCanvas.getContext('2d');
+    const currCtx = currCanvas.getContext('2d');
+    const prevData = prevCtx.getImageData(0, 0, prevCanvas.width, prevCanvas.height);
+    const currData = currCtx.getImageData(0, 0, currCanvas.width, currCanvas.height);
+
+    const result = findStitchOffset2D(prevData, currData);
+
+    if (result !== null) {
+      pairResults.push({ pair: [i, i + 1], ...result });
+      warnings.push(`Photos ${i} and ${i + 1} matched with ${Math.round(result.confidence * 100)}% confidence.`);
+
+      const prevOffset = offsets[i - 1];
+      offsets.push({
+        x: prevOffset.x + result.offsetX,
+        y: prevOffset.y + prevCanvas.height - result.offsetY,
+      });
+    } else {
+      pairResults.push({ pair: [i, i + 1], offsetX: 0, offsetY: 0, confidence: 0 });
+      warnings.push(`Photos ${i} and ${i + 1} could not be matched — stacked instead.`);
+      fallbackPairs.push(i);
+
+      const prevOffset = offsets[i - 1];
+      offsets.push({
+        x: 0,
+        y: prevOffset.y + prevCanvas.height + 2,
+      });
+    }
+  }
+
+  // Compute output dimensions
+  let minX = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (let i = 0; i < scaled.length; i++) {
+    const ox = offsets[i].x;
+    minX = Math.min(minX, ox);
+    maxX = Math.max(maxX, ox + scaled[i].width);
+    maxY = Math.max(maxY, offsets[i].y + scaled[i].height);
+  }
+
+  const outW = maxX - minX;
+  const outH = maxY;
+  const shiftX = -minX;
+
+  // Composite
+  const outCanvas = _createCanvas();
+  outCanvas.width = outW;
+  outCanvas.height = outH;
+  const ctx = outCanvas.getContext('2d');
+
+  for (let i = 0; i < scaled.length; i++) {
+    const img = scaled[i];
+    const ox = offsets[i].x + shiftX;
+    const oy = offsets[i].y;
+
+    if (i > 0 && !fallbackPairs.includes(i)) {
+      const prevOy = offsets[i - 1].y;
+      const prevBottom = prevOy + scaled[i - 1].height;
+      const overlapHeight = prevBottom - oy;
+
+      if (overlapHeight > 0) {
+        ctx.clearRect(ox, oy, img.width, overlapHeight);
+
+        for (let row = 0; row < overlapHeight; row++) {
+          const tB = (row + 1) / (overlapHeight + 1);
+          const tA = 1 - tB;
+
+          ctx.globalAlpha = tA;
+          const prevOx = offsets[i - 1].x + shiftX;
+          ctx.drawImage(scaled[i - 1],
+            0, scaled[i - 1].height - overlapHeight + row, scaled[i - 1].width, 1,
+            prevOx, oy + row, scaled[i - 1].width, 1);
+
+          ctx.globalAlpha = tB;
+          ctx.drawImage(img, 0, row, img.width, 1, ox, oy + row, img.width, 1);
+        }
+
+        ctx.globalAlpha = 1;
+        const remainY = overlapHeight;
+        const remainH = img.height - remainY;
+        if (remainH > 0) {
+          ctx.drawImage(img, 0, remainY, img.width, remainH, ox, oy + remainY, img.width, remainH);
+        }
+      } else {
+        ctx.drawImage(img, 0, 0, img.width, img.height, ox, oy, img.width, img.height);
+      }
+    } else if (i > 0 && fallbackPairs.includes(i)) {
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(0, oy - 2, outW, 2);
+      ctx.drawImage(img, 0, 0, img.width, img.height, ox, oy, img.width, img.height);
+    } else {
+      ctx.drawImage(img, 0, 0, img.width, img.height, ox, oy, img.width, img.height);
+    }
+  }
+
+  return { canvas: outCanvas, warnings, pairResults };
+}
