@@ -1,4 +1,4 @@
-const CACHE_NAME = 'receipt-cutter-v2';
+const CACHE_NAME = 'receipt-cutter-v3';
 
 const LOCAL_ASSETS = [
   '/',
