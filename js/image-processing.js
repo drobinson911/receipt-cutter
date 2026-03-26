@@ -123,27 +123,28 @@ export function autoCrop(imageData, threshold = 200) {
 
   const RECEIPT_FRAC = 0.20;
 
-  let top = 0;
+  let top = -1;
   for (let y = 0; y < height; y++) {
     if (rowBrightFraction(y) >= RECEIPT_FRAC) { top = y; break; }
   }
 
-  let bottom = height - 1;
+  let bottom = -1;
   for (let y = height - 1; y >= 0; y--) {
     if (rowBrightFraction(y) >= RECEIPT_FRAC) { bottom = y; break; }
   }
 
-  let left = 0;
+  let left = -1;
   for (let x = 0; x < width; x++) {
     if (colBrightFraction(x) >= RECEIPT_FRAC) { left = x; break; }
   }
 
-  let right = width - 1;
+  let right = -1;
   for (let x = width - 1; x >= 0; x--) {
     if (colBrightFraction(x) >= RECEIPT_FRAC) { right = x; break; }
   }
 
-  if (top >= bottom || left >= right) {
+  // If no bright region found at all, return full image
+  if (top === -1 || bottom === -1 || left === -1 || right === -1 || top >= bottom || left >= right) {
     return { x: 0, y: 0, w: width, h: height };
   }
 
@@ -231,6 +232,13 @@ export function stitchImages(images) {
   let totalHeight = images[0].canvas.height;
   const width = images[0].canvas.width;
 
+  // Validate all canvases share the same width
+  for (let i = 1; i < images.length; i++) {
+    if (images[i].canvas.width !== width) {
+      warnings.push(`Photo ${i + 1} has a different width (${images[i].canvas.width}px vs ${width}px). Output may be distorted.`);
+    }
+  }
+
   for (let i = 1; i < images.length; i++) {
     const result = findStitchOffset(images[i - 1].brightness, images[i].brightness);
     let overlap = 0;
@@ -257,12 +265,23 @@ export function stitchImages(images) {
       const overlapHeight = prevBottom - y;
 
       if (overlapHeight > 0) {
+        // Clear the overlap region that was drawn by the first image's full pass
+        ctx.clearRect(0, y, width, overlapHeight);
+        // Cross-fade: decrease A's alpha, increase B's alpha
         for (let row = 0; row < overlapHeight; row++) {
-          const alpha = row / overlapHeight;
-          ctx.globalAlpha = alpha;
+          const tB = (row + 1) / (overlapHeight + 1);
+          const tA = 1 - tB;
+          // Redraw A's contribution at decreasing alpha
+          ctx.globalAlpha = tA;
+          ctx.drawImage(images[i - 1].canvas,
+            0, images[i - 1].canvas.height - overlapHeight + row, width, 1,
+            0, y + row, width, 1);
+          // Draw B's contribution at increasing alpha
+          ctx.globalAlpha = tB;
           ctx.drawImage(img, 0, row, width, 1, 0, y + row, width, 1);
         }
         ctx.globalAlpha = 1;
+        // Draw the rest of this image below the overlap
         const remainY = overlapHeight;
         const remainH = img.height - remainY;
         if (remainH > 0) {
