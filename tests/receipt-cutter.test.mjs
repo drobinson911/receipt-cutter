@@ -6,7 +6,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { findCutPoints, calcColumnsPerPage } from '../js/image-processing.js';
+import {
+  findCutPoints,
+  calcColumnsPerPage,
+  DPI,
+  PAGE_W,
+  PAGE_H,
+  MARGIN,
+  GAP,
+  USABLE_H,
+  SEARCH_RANGE,
+  BRIGHTNESS_THRESHOLD,
+} from '../js/image-processing.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -26,16 +37,6 @@ function brightnessWithGaps(height, brightRows, darkValue = 10, brightValue = 24
   }
   return arr;
 }
-
-// Constants mirroring the app (300 DPI letter page)
-const DPI              = 300;
-const PAGE_W           = Math.round(8.5  * DPI); // 2550
-const PAGE_H           = Math.round(11.0 * DPI); // 3300
-const MARGIN           = Math.round(0.35 * DPI); // 105
-const GAP              = Math.round(0.15 * DPI); //  45
-const USABLE_H         = PAGE_H - 2 * MARGIN;    // 3090
-const SEARCH_RANGE     = Math.round(0.75 * DPI);  // 225
-const BRIGHTNESS_THRESHOLD = 240;
 
 // ─── findCutPoints tests ──────────────────────────────────────────────────────
 
