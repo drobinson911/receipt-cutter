@@ -154,3 +154,127 @@ export function autoCrop(imageData, threshold = 200) {
 
   return { x, y, w, h };
 }
+
+// ─── Stitching Functions ──────────────────────────────────────────────────
+
+/**
+ * Find the vertical overlap between two images using brightness-signature correlation.
+ * aBrightness: Float32Array of row brightness for image A (top image)
+ * bBrightness: Float32Array of row brightness for image B (bottom image)
+ * minOverlapFrac: minimum overlap as fraction of shorter image height (e.g., 0.1 = 10%)
+ * maxOverlapFrac: maximum overlap as fraction of shorter image height (e.g., 0.5 = 50%)
+ * Returns { offset, confidence } or null if no good match.
+ * offset = number of rows from top of B that overlap with bottom of A.
+ */
+export function findStitchOffset(aBrightness, bBrightness, minOverlapFrac = 0.1, maxOverlapFrac = 0.5) {
+  const aLen = aBrightness.length;
+  const bLen = bBrightness.length;
+  const shorter = Math.min(aLen, bLen);
+  const minOverlap = Math.max(20, Math.floor(shorter * minOverlapFrac));
+  const maxOverlap = Math.floor(shorter * maxOverlapFrac);
+
+  let bestOffset = 0;
+  let bestScore = -Infinity;
+
+  for (let overlap = minOverlap; overlap <= maxOverlap; overlap++) {
+    const aStart = aLen - overlap;
+
+    let sumA = 0, sumB = 0;
+    for (let i = 0; i < overlap; i++) {
+      sumA += aBrightness[aStart + i];
+      sumB += bBrightness[i];
+    }
+    const meanA = sumA / overlap;
+    const meanB = sumB / overlap;
+
+    let num = 0, denomA = 0, denomB = 0;
+    for (let i = 0; i < overlap; i++) {
+      const da = aBrightness[aStart + i] - meanA;
+      const db = bBrightness[i] - meanB;
+      num += da * db;
+      denomA += da * da;
+      denomB += db * db;
+    }
+
+    const denom = Math.sqrt(denomA * denomB);
+    if (denom < 1e-6) continue;
+
+    const ncc = num / denom;
+
+    if (ncc >= bestScore) {
+      bestScore = ncc;
+      bestOffset = overlap;
+    }
+  }
+
+  const CONFIDENCE_THRESHOLD = 0.7;
+  if (bestScore < CONFIDENCE_THRESHOLD) {
+    return null;
+  }
+
+  return { offset: bestOffset, confidence: bestScore };
+}
+
+/**
+ * Stitch multiple images vertically using brightness-correlation overlap detection.
+ * images: array of { canvas, brightness } objects, ordered top-to-bottom.
+ * Returns { canvas, warnings } where:
+ *   - canvas: the stitched result as a canvas element (or null if no images)
+ *   - warnings: array of strings for any images where overlap detection failed
+ */
+export function stitchImages(images) {
+  if (images.length === 0) return { canvas: null, warnings: ['No images provided'] };
+  if (images.length === 1) return { canvas: images[0].canvas, warnings: [] };
+
+  const warnings = [];
+  const offsets = [0];
+  let totalHeight = images[0].canvas.height;
+  const width = images[0].canvas.width;
+
+  for (let i = 1; i < images.length; i++) {
+    const result = findStitchOffset(images[i - 1].brightness, images[i].brightness);
+    let overlap = 0;
+    if (result !== null) {
+      overlap = result.offset;
+    } else {
+      warnings.push(`Low confidence matching photos ${i} and ${i + 1}. They may not overlap enough.`);
+    }
+    totalHeight += images[i].canvas.height - overlap;
+    offsets.push(totalHeight - images[i].canvas.height);
+  }
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = width;
+  outCanvas.height = totalHeight;
+  const ctx = outCanvas.getContext('2d');
+
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i].canvas;
+    const y = offsets[i];
+
+    if (i > 0) {
+      const prevBottom = offsets[i - 1] + images[i - 1].canvas.height;
+      const overlapHeight = prevBottom - y;
+
+      if (overlapHeight > 0) {
+        for (let row = 0; row < overlapHeight; row++) {
+          const alpha = row / overlapHeight;
+          ctx.globalAlpha = alpha;
+          ctx.drawImage(img, 0, row, width, 1, 0, y + row, width, 1);
+        }
+        ctx.globalAlpha = 1;
+        const remainY = overlapHeight;
+        const remainH = img.height - remainY;
+        if (remainH > 0) {
+          ctx.drawImage(img, 0, remainY, width, remainH, 0, y + remainY, width, remainH);
+        }
+      } else {
+        ctx.drawImage(img, 0, 0, width, img.height, 0, y, width, img.height);
+      }
+    } else {
+      ctx.drawImage(img, 0, 0, width, img.height, 0, y, width, img.height);
+    }
+  }
+
+  return { canvas: outCanvas, warnings };
+}
