@@ -88,3 +88,69 @@ export function calcColumnsPerPage(stripWidth, pageWidth, margin, gap) {
   }
   return cols;
 }
+
+/**
+ * Auto-crop to receipt boundaries using brightness thresholding.
+ * Accepts an ImageData-like object { data, width, height } and a brightness threshold.
+ * Returns { x, y, w, h } bounding rectangle.
+ * Scans inward from each edge to find the first row/column exceeding the threshold.
+ * Falls back to full image if no bright region found.
+ */
+export function autoCrop(imageData, threshold = 200) {
+  const { data, width, height } = imageData;
+  const MARGIN_PX = 10;
+
+  function pixelBrightness(x, y) {
+    const i = (y * width + x) * 4;
+    return (data[i] + data[i + 1] + data[i + 2]) / 3;
+  }
+
+  function rowBrightFraction(y) {
+    let count = 0;
+    for (let x = 0; x < width; x++) {
+      if (pixelBrightness(x, y) > threshold) count++;
+    }
+    return count / width;
+  }
+
+  function colBrightFraction(x) {
+    let count = 0;
+    for (let y = 0; y < height; y++) {
+      if (pixelBrightness(x, y) > threshold) count++;
+    }
+    return count / height;
+  }
+
+  const RECEIPT_FRAC = 0.20;
+
+  let top = 0;
+  for (let y = 0; y < height; y++) {
+    if (rowBrightFraction(y) >= RECEIPT_FRAC) { top = y; break; }
+  }
+
+  let bottom = height - 1;
+  for (let y = height - 1; y >= 0; y--) {
+    if (rowBrightFraction(y) >= RECEIPT_FRAC) { bottom = y; break; }
+  }
+
+  let left = 0;
+  for (let x = 0; x < width; x++) {
+    if (colBrightFraction(x) >= RECEIPT_FRAC) { left = x; break; }
+  }
+
+  let right = width - 1;
+  for (let x = width - 1; x >= 0; x--) {
+    if (colBrightFraction(x) >= RECEIPT_FRAC) { right = x; break; }
+  }
+
+  if (top >= bottom || left >= right) {
+    return { x: 0, y: 0, w: width, h: height };
+  }
+
+  const x = Math.max(0, left - MARGIN_PX);
+  const y = Math.max(0, top - MARGIN_PX);
+  const w = Math.min(width, right + MARGIN_PX + 1) - x;
+  const h = Math.min(height, bottom + MARGIN_PX + 1) - y;
+
+  return { x, y, w, h };
+}
