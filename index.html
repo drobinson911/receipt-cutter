@@ -328,97 +328,8 @@
     </div>
   </main>
 
-  <script>
-    // ─── Constants ───────────────────────────────────────────────────────────
-    const DPI = 300;
-    const PAGE_W_IN = 8.5;
-    const PAGE_H_IN = 11.0;
-    const MARGIN_IN = 0.35;
-    const GAP_IN = 0.15;
-    const SEARCH_RANGE_IN = 0.75;
-    const BRIGHTNESS_THRESHOLD = 240;
-
-    const PAGE_W      = Math.round(PAGE_W_IN      * DPI);  // 2550
-    const PAGE_H      = Math.round(PAGE_H_IN      * DPI);  // 3300
-    const MARGIN      = Math.round(MARGIN_IN      * DPI);  // 105
-    const GAP         = Math.round(GAP_IN         * DPI);  //  45
-    const USABLE_H    = PAGE_H - 2 * MARGIN;               // 3090
-    const SEARCH_RANGE = Math.round(SEARCH_RANGE_IN * DPI); // 225
-
-    // ─── Core Processing Functions ───────────────────────────────────────────
-
-    /**
-     * Returns a Float32Array of average brightness per row.
-     * Each pixel's brightness = (R + G + B) / 3; row brightness = mean across all pixels.
-     */
-    function getRowBrightness(canvas) {
-      const ctx = canvas.getContext('2d');
-      const { width, height } = canvas;
-      const imageData = ctx.getImageData(0, 0, width, height);
-      const data = imageData.data; // RGBA flat array
-      const rowBrightness = new Float32Array(height);
-
-      for (let y = 0; y < height; y++) {
-        let sum = 0;
-        const rowStart = y * width * 4;
-        for (let x = 0; x < width; x++) {
-          const i = rowStart + x * 4;
-          sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
-        }
-        rowBrightness[y] = sum / width;
-      }
-      return rowBrightness;
-    }
-
-    /**
-     * Finds cut points between text lines.
-     * For each ideal cut at targetHeight intervals, searches ±searchRange for
-     * the nearest row where brightness > brightnessThreshold.
-     * Falls back to ideal cut if no bright row is found.
-     * Returns array starting with 0, ending with imgHeight.
-     */
-    function findCutPoints(rowBrightness, imgHeight, targetHeight, searchRange, brightnessThreshold) {
-      const cuts = [0];
-      let pos = 0;
-
-      while (pos + targetHeight < imgHeight) {
-        const idealCut = pos + targetHeight;
-        const searchStart = Math.max(0, idealCut - searchRange);
-        const searchEnd   = Math.min(imgHeight, idealCut + searchRange);
-
-        let bestCut = null;
-        for (let y = searchStart; y < searchEnd; y++) {
-          if (rowBrightness[y] > brightnessThreshold) {
-            if (bestCut === null || Math.abs(y - idealCut) < Math.abs(bestCut - idealCut)) {
-              bestCut = y;
-            }
-          }
-        }
-
-        if (bestCut !== null) {
-          cuts.push(bestCut);
-          pos = bestCut;
-        } else {
-          cuts.push(idealCut);
-          pos = idealCut;
-        }
-      }
-
-      cuts.push(imgHeight);
-      return cuts;
-    }
-
-    /**
-     * Calculates how many strip columns fit side-by-side on one page.
-     * Increments cols while: 2*margin + cols*stripWidth + (cols-1)*gap <= pageWidth
-     */
-    function calcColumnsPerPage(stripWidth, pageWidth, margin, gap) {
-      let cols = 1;
-      while (2 * margin + (cols + 1) * stripWidth + cols * gap <= pageWidth) {
-        cols++;
-      }
-      return cols;
-    }
+  <script type="module">
+    import { generatePdf } from './js/pdf-generator.js';
 
     // ─── State ───────────────────────────────────────────────────────────────
     let loadedImage    = null;  // HTMLImageElement
@@ -448,10 +359,6 @@
     const btnReset        = document.getElementById('btn-reset');
 
     // ─── Upload Handling ─────────────────────────────────────────────────────
-    // Camera button triggers the hidden file input with capture="environment".
-    // File button triggers the standard file picker.
-    // Drag-and-drop is also supported via dragover/dragleave/drop events.
-
     btnCamera.addEventListener('click', () => inputCamera.click());
     btnFile.addEventListener('click',   () => inputFile.click());
 
@@ -509,17 +416,9 @@
     }
 
     // ─── PDF Generation Pipeline ─────────────────────────────────────────────
-    // processReceipt() orchestrates: canvas draw → row brightness → cut points
-    // → column calculation → jsPDF page layout → JPEG strip images → blob URL.
-    // updateProgress() and sleep() are helpers for async UI feedback.
-
     function updateProgress(text, percent) {
       progressText.textContent = text;
       progressBar.style.width  = percent + '%';
-    }
-
-    function sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     btnConvert.addEventListener('click', processReceipt);
@@ -528,108 +427,24 @@
       btnConvert.disabled = true;
       previewSection.style.display = 'none';
       progressSection.style.display = 'block';
-      updateProgress('Loading image…', 5);
-      await sleep(50);
 
       try {
-        // 1. Draw image to canvas
-        const canvas = document.createElement('canvas');
-        canvas.width  = loadedImage.naturalWidth;
-        canvas.height = loadedImage.naturalHeight;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(loadedImage, 0, 0);
+        const result = await generatePdf(loadedImage, updateProgress);
 
-        updateProgress('Analysing brightness…', 15);
-        await sleep(50);
-
-        // 2. Row brightness
-        const rowBrightness = getRowBrightness(canvas);
-
-        updateProgress('Finding cut points…', 30);
-        await sleep(50);
-
-        // 3. Cut points
-        const imgW = canvas.width;
-        const imgH = canvas.height;
-        const cutPoints = findCutPoints(rowBrightness, imgH, USABLE_H, SEARCH_RANGE, BRIGHTNESS_THRESHOLD);
-        const numStrips = cutPoints.length - 1;
-
-        // 4. Columns per page
-        const colsPerPage = calcColumnsPerPage(imgW, PAGE_W, MARGIN, GAP);
-
-        updateProgress('Creating PDF…', 45);
-        await sleep(50);
-
-        // 5. Create jsPDF instance
-        const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({
-          unit:   'px',
-          format: [PAGE_W, PAGE_H],
-          hotfixes: ['px_scaling'],
-        });
-
-        const numPages = Math.ceil(numStrips / colsPerPage);
-
-        for (let p = 0; p < numPages; p++) {
-          if (p > 0) doc.addPage([PAGE_W, PAGE_H]);
-
-          const pageStrips = [];
-          const stripStart = p * colsPerPage;
-          const stripEnd   = Math.min(stripStart + colsPerPage, numStrips);
-
-          // Extract strip canvases for this page
-          for (let s = stripStart; s < stripEnd; s++) {
-            const top    = cutPoints[s];
-            const bottom = cutPoints[s + 1];
-            const sh     = bottom - top;
-
-            const stripCanvas = document.createElement('canvas');
-            stripCanvas.width  = imgW;
-            stripCanvas.height = sh;
-            const sCtx = stripCanvas.getContext('2d');
-            sCtx.drawImage(canvas, 0, top, imgW, sh, 0, 0, imgW, sh);
-            pageStrips.push(stripCanvas);
-          }
-
-          // Center columns horizontally
-          const numCols     = pageStrips.length;
-          const totalColsW  = numCols * imgW + (numCols - 1) * GAP;
-          const xStart      = Math.round((PAGE_W - totalColsW) / 2);
-
-          for (let c = 0; c < numCols; c++) {
-            const x          = xStart + c * (imgW + GAP);
-            const y          = MARGIN;
-            const stripCanvas = pageStrips[c];
-            const imgData    = stripCanvas.toDataURL('image/jpeg', 0.92);
-            doc.addImage(imgData, 'JPEG', x, y, imgW, stripCanvas.height);
-            stripCanvas.width  = 0;
-            stripCanvas.height = 0;
-          }
-
-          const pct = 45 + Math.round(((p + 1) / numPages) * 50);
-          updateProgress(`Rendering page ${p + 1} of ${numPages}…`, pct);
-          await sleep(30);
-        }
-
-        updateProgress('Finalising…', 97);
-        await sleep(50);
-
-        // 6. Create blob URL
-        const pdfBlob = doc.output('blob');
         if (generatedPdfUrl) URL.revokeObjectURL(generatedPdfUrl);
-        generatedPdfUrl = URL.createObjectURL(pdfBlob);
+        generatedPdfUrl = result.blobUrl;
 
         updateProgress('Done!', 100);
-        await sleep(200);
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         progressSection.style.display = 'none';
         resultSection.style.display   = 'block';
         resetLink.style.display       = 'block';
 
         resultInfo.textContent =
-          `${numPages} page${numPages !== 1 ? 's' : ''} · ` +
-          `${numStrips} strip${numStrips !== 1 ? 's' : ''} · ` +
-          `${colsPerPage} column${colsPerPage !== 1 ? 's' : ''} per page`;
+          `${result.numPages} page${result.numPages !== 1 ? 's' : ''} · ` +
+          `${result.numStrips} strip${result.numStrips !== 1 ? 's' : ''} · ` +
+          `${result.colsPerPage} column${result.colsPerPage !== 1 ? 's' : ''} per page`;
       } catch (err) {
         console.error('processReceipt failed:', err);
         progressSection.style.display = 'none';
@@ -640,7 +455,6 @@
     }
 
     // ─── Download & Print ─────────────────────────────────────────────────────
-
     btnDownload.addEventListener('click', () => {
       if (!generatedPdfUrl) return;
       const a = document.createElement('a');
@@ -658,10 +472,8 @@
     });
 
     // ─── Reset ────────────────────────────────────────────────────────────────
-
     btnReset.addEventListener('click', (e) => {
       e.preventDefault();
-      // Clear state
       loadedImage     = null;
       loadedFileName  = '';
       if (generatedPdfUrl) {
@@ -669,11 +481,9 @@
         generatedPdfUrl = null;
       }
 
-      // Reset file inputs
       inputCamera.value = '';
       inputFile.value   = '';
 
-      // Reset UI
       previewImg.src          = '';
       previewFilename.textContent = '';
       previewDims.textContent = '';
@@ -683,7 +493,6 @@
       btnConvert.disabled     = false;
       resultInfo.textContent  = '';
 
-      // Show/hide sections
       uploadArea.closest('.card').style.display = 'block';
       previewSection.style.display  = 'none';
       progressSection.style.display = 'none';

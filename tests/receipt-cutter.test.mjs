@@ -1,62 +1,12 @@
 /**
  * Unit tests for Receipt Cutter core processing functions.
- * Functions are copied inline because they live in an HTML file.
+ * Functions are imported from the js/ modules.
  */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-// ─── Inline copies of the functions under test ───────────────────────────────
-
-/**
- * Finds cut points between text lines.
- * For each ideal cut at targetHeight intervals, searches ±searchRange for
- * the nearest row where brightness > brightnessThreshold.
- * Falls back to ideal cut if no bright row is found.
- * Returns array starting with 0, ending with imgHeight.
- */
-function findCutPoints(rowBrightness, imgHeight, targetHeight, searchRange, brightnessThreshold) {
-  const cuts = [0];
-  let pos = 0;
-
-  while (pos + targetHeight < imgHeight) {
-    const idealCut = pos + targetHeight;
-    const searchStart = Math.max(0, idealCut - searchRange);
-    const searchEnd   = Math.min(imgHeight, idealCut + searchRange);
-
-    let bestCut = null;
-    for (let y = searchStart; y < searchEnd; y++) {
-      if (rowBrightness[y] > brightnessThreshold) {
-        if (bestCut === null || Math.abs(y - idealCut) < Math.abs(bestCut - idealCut)) {
-          bestCut = y;
-        }
-      }
-    }
-
-    if (bestCut !== null) {
-      cuts.push(bestCut);
-      pos = bestCut;
-    } else {
-      cuts.push(idealCut);
-      pos = idealCut;
-    }
-  }
-
-  cuts.push(imgHeight);
-  return cuts;
-}
-
-/**
- * Calculates how many strip columns fit side-by-side on one page.
- * Increments cols while: 2*margin + cols*stripWidth + (cols-1)*gap <= pageWidth
- */
-function calcColumnsPerPage(stripWidth, pageWidth, margin, gap) {
-  let cols = 1;
-  while (2 * margin + (cols + 1) * stripWidth + cols * gap <= pageWidth) {
-    cols++;
-  }
-  return cols;
-}
+import { findCutPoints, calcColumnsPerPage } from '../js/image-processing.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
