@@ -324,7 +324,7 @@
 
     <!-- Reset link -->
     <div id="reset-link">
-      <a id="btn-reset">Process another receipt</a>
+      <a id="btn-reset" href="#">Process another receipt</a>
     </div>
   </main>
 
@@ -531,102 +531,112 @@
       updateProgress('Loading image…', 5);
       await sleep(50);
 
-      // 1. Draw image to canvas
-      const canvas = document.createElement('canvas');
-      canvas.width  = loadedImage.naturalWidth;
-      canvas.height = loadedImage.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(loadedImage, 0, 0);
+      try {
+        // 1. Draw image to canvas
+        const canvas = document.createElement('canvas');
+        canvas.width  = loadedImage.naturalWidth;
+        canvas.height = loadedImage.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(loadedImage, 0, 0);
 
-      updateProgress('Analysing brightness…', 15);
-      await sleep(50);
+        updateProgress('Analysing brightness…', 15);
+        await sleep(50);
 
-      // 2. Row brightness
-      const rowBrightness = getRowBrightness(canvas);
+        // 2. Row brightness
+        const rowBrightness = getRowBrightness(canvas);
 
-      updateProgress('Finding cut points…', 30);
-      await sleep(50);
+        updateProgress('Finding cut points…', 30);
+        await sleep(50);
 
-      // 3. Cut points
-      const imgW = canvas.width;
-      const imgH = canvas.height;
-      const cutPoints = findCutPoints(rowBrightness, imgH, USABLE_H, SEARCH_RANGE, BRIGHTNESS_THRESHOLD);
-      const numStrips = cutPoints.length - 1;
+        // 3. Cut points
+        const imgW = canvas.width;
+        const imgH = canvas.height;
+        const cutPoints = findCutPoints(rowBrightness, imgH, USABLE_H, SEARCH_RANGE, BRIGHTNESS_THRESHOLD);
+        const numStrips = cutPoints.length - 1;
 
-      // 4. Columns per page
-      const colsPerPage = calcColumnsPerPage(imgW, PAGE_W, MARGIN, GAP);
+        // 4. Columns per page
+        const colsPerPage = calcColumnsPerPage(imgW, PAGE_W, MARGIN, GAP);
 
-      updateProgress('Creating PDF…', 45);
-      await sleep(50);
+        updateProgress('Creating PDF…', 45);
+        await sleep(50);
 
-      // 5. Create jsPDF instance
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF({
-        unit:   'px',
-        format: [PAGE_W, PAGE_H],
-        hotfixes: ['px_scaling'],
-      });
+        // 5. Create jsPDF instance
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({
+          unit:   'px',
+          format: [PAGE_W, PAGE_H],
+          hotfixes: ['px_scaling'],
+        });
 
-      const numPages = Math.ceil(numStrips / colsPerPage);
+        const numPages = Math.ceil(numStrips / colsPerPage);
 
-      for (let p = 0; p < numPages; p++) {
-        if (p > 0) doc.addPage([PAGE_W, PAGE_H]);
+        for (let p = 0; p < numPages; p++) {
+          if (p > 0) doc.addPage([PAGE_W, PAGE_H]);
 
-        const pageStrips = [];
-        const stripStart = p * colsPerPage;
-        const stripEnd   = Math.min(stripStart + colsPerPage, numStrips);
+          const pageStrips = [];
+          const stripStart = p * colsPerPage;
+          const stripEnd   = Math.min(stripStart + colsPerPage, numStrips);
 
-        // Extract strip canvases for this page
-        for (let s = stripStart; s < stripEnd; s++) {
-          const top    = cutPoints[s];
-          const bottom = cutPoints[s + 1];
-          const sh     = bottom - top;
+          // Extract strip canvases for this page
+          for (let s = stripStart; s < stripEnd; s++) {
+            const top    = cutPoints[s];
+            const bottom = cutPoints[s + 1];
+            const sh     = bottom - top;
 
-          const stripCanvas = document.createElement('canvas');
-          stripCanvas.width  = imgW;
-          stripCanvas.height = sh;
-          const sCtx = stripCanvas.getContext('2d');
-          sCtx.drawImage(canvas, 0, top, imgW, sh, 0, 0, imgW, sh);
-          pageStrips.push(stripCanvas);
+            const stripCanvas = document.createElement('canvas');
+            stripCanvas.width  = imgW;
+            stripCanvas.height = sh;
+            const sCtx = stripCanvas.getContext('2d');
+            sCtx.drawImage(canvas, 0, top, imgW, sh, 0, 0, imgW, sh);
+            pageStrips.push(stripCanvas);
+          }
+
+          // Center columns horizontally
+          const numCols     = pageStrips.length;
+          const totalColsW  = numCols * imgW + (numCols - 1) * GAP;
+          const xStart      = Math.round((PAGE_W - totalColsW) / 2);
+
+          for (let c = 0; c < numCols; c++) {
+            const x          = xStart + c * (imgW + GAP);
+            const y          = MARGIN;
+            const stripCanvas = pageStrips[c];
+            const imgData    = stripCanvas.toDataURL('image/jpeg', 0.92);
+            doc.addImage(imgData, 'JPEG', x, y, imgW, stripCanvas.height);
+            stripCanvas.width  = 0;
+            stripCanvas.height = 0;
+          }
+
+          const pct = 45 + Math.round(((p + 1) / numPages) * 50);
+          updateProgress(`Rendering page ${p + 1} of ${numPages}…`, pct);
+          await sleep(30);
         }
 
-        // Center columns horizontally
-        const numCols     = pageStrips.length;
-        const totalColsW  = numCols * imgW + (numCols - 1) * GAP;
-        const xStart      = Math.round((PAGE_W - totalColsW) / 2);
+        updateProgress('Finalising…', 97);
+        await sleep(50);
 
-        for (let c = 0; c < numCols; c++) {
-          const x          = xStart + c * (imgW + GAP);
-          const y          = MARGIN;
-          const stripCanvas = pageStrips[c];
-          const imgData    = stripCanvas.toDataURL('image/jpeg', 0.92);
-          doc.addImage(imgData, 'JPEG', x, y, imgW, stripCanvas.height);
-        }
+        // 6. Create blob URL
+        const pdfBlob = doc.output('blob');
+        if (generatedPdfUrl) URL.revokeObjectURL(generatedPdfUrl);
+        generatedPdfUrl = URL.createObjectURL(pdfBlob);
 
-        const pct = 45 + Math.round(((p + 1) / numPages) * 50);
-        updateProgress(`Rendering page ${p + 1} of ${numPages}…`, pct);
-        await sleep(30);
+        updateProgress('Done!', 100);
+        await sleep(200);
+
+        progressSection.style.display = 'none';
+        resultSection.style.display   = 'block';
+        resetLink.style.display       = 'block';
+
+        resultInfo.textContent =
+          `${numPages} page${numPages !== 1 ? 's' : ''} · ` +
+          `${numStrips} strip${numStrips !== 1 ? 's' : ''} · ` +
+          `${colsPerPage} column${colsPerPage !== 1 ? 's' : ''} per page`;
+      } catch (err) {
+        console.error('processReceipt failed:', err);
+        progressSection.style.display = 'none';
+        previewSection.style.display  = 'block';
+        btnConvert.disabled = false;
+        alert('An error occurred while processing the receipt. Please try again.');
       }
-
-      updateProgress('Finalising…', 97);
-      await sleep(50);
-
-      // 6. Create blob URL
-      const pdfBlob = doc.output('blob');
-      if (generatedPdfUrl) URL.revokeObjectURL(generatedPdfUrl);
-      generatedPdfUrl = URL.createObjectURL(pdfBlob);
-
-      updateProgress('Done!', 100);
-      await sleep(200);
-
-      progressSection.style.display = 'none';
-      resultSection.style.display   = 'block';
-      resetLink.style.display       = 'block';
-
-      resultInfo.textContent =
-        `${numPages} page${numPages !== 1 ? 's' : ''} · ` +
-        `${numStrips} strip${numStrips !== 1 ? 's' : ''} · ` +
-        `${colsPerPage} column${colsPerPage !== 1 ? 's' : ''} per page`;
     }
 
     // ─── Download & Print ─────────────────────────────────────────────────────
@@ -649,7 +659,8 @@
 
     // ─── Reset ────────────────────────────────────────────────────────────────
 
-    btnReset.addEventListener('click', () => {
+    btnReset.addEventListener('click', (e) => {
+      e.preventDefault();
       // Clear state
       loadedImage     = null;
       loadedFileName  = '';
