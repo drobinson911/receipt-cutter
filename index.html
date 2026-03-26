@@ -448,6 +448,9 @@
     const btnReset        = document.getElementById('btn-reset');
 
     // ─── Upload Handling ─────────────────────────────────────────────────────
+    // Camera button triggers the hidden file input with capture="environment".
+    // File button triggers the standard file picker.
+    // Drag-and-drop is also supported via dragover/dragleave/drop events.
 
     btnCamera.addEventListener('click', () => inputCamera.click());
     btnFile.addEventListener('click',   () => inputFile.click());
