@@ -492,3 +492,45 @@ export function findStitchOffset2D(imgA, imgB) {
     confidence: bestResult.confidence,
   };
 }
+
+/**
+ * Stack images vertically with separator lines between them.
+ * images: array of { data, width, height } or canvas-like objects.
+ * createCanvasFn: optional factory for canvas creation (for testing).
+ * Returns { canvas } where canvas has all images stacked.
+ */
+export function stackImages(images, createCanvasFn) {
+  const _createCanvas = createCanvasFn || (() => document.createElement('canvas'));
+
+  if (images.length === 0) return { canvas: null };
+  if (images.length === 1) {
+    const out = _createCanvas();
+    out.width = images[0].width;
+    out.height = images[0].height;
+    const ctx = out.getContext('2d');
+    ctx.drawImage(images[0], 0, 0);
+    return { canvas: out };
+  }
+
+  const SEPARATOR_H = 2;
+  const width = images[0].width;
+  const totalHeight = images.reduce((sum, img) => sum + img.height, 0) + (images.length - 1) * SEPARATOR_H;
+
+  const out = _createCanvas();
+  out.width = width;
+  out.height = totalHeight;
+  const ctx = out.getContext('2d');
+
+  let y = 0;
+  for (let i = 0; i < images.length; i++) {
+    if (i > 0) {
+      ctx.fillStyle = '#e2e8f0';
+      ctx.fillRect(0, y, width, SEPARATOR_H);
+      y += SEPARATOR_H;
+    }
+    ctx.drawImage(images[i], 0, 0, images[i].width, images[i].height, 0, y, width, images[i].height);
+    y += images[i].height;
+  }
+
+  return { canvas: out };
+}

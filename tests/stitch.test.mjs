@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeScales, findStitchOffset2D } from '../js/image-processing.js';
+import { normalizeScales, findStitchOffset2D, stackImages } from '../js/image-processing.js';
 
 test('normalizeScales: returns target width as median of input widths', () => {
   const result = normalizeScales([
@@ -139,4 +139,60 @@ test('findStitchOffset2D: handles noisy overlap', () => {
   assert.ok(result !== null, 'Should find match despite noise');
   assert.ok(Math.abs(result.offsetY - 80) <= 4, `offsetY=${result.offsetY} should be near 80`);
   assert.ok(result.confidence > 0.5, `confidence=${result.confidence}`);
+});
+
+// ─── stackImages tests ──────────────────────────────────────────────────
+
+function createMockCanvas() {
+  const canvas = {
+    width: 0,
+    height: 0,
+    _ops: [],
+    getContext() {
+      return {
+        fillStyle: '',
+        fillRect(x, y, w, h) { canvas._ops.push({ op: 'fillRect', x, y, w, h }); },
+        drawImage() { canvas._ops.push({ op: 'drawImage', args: [...arguments] }); },
+        clearRect() {},
+        globalAlpha: 1,
+        setLineDash() {},
+        beginPath() {},
+        moveTo() {},
+        lineTo() {},
+        stroke() {},
+        strokeStyle: '',
+        lineWidth: 1,
+      };
+    },
+  };
+  return canvas;
+}
+
+test('stackImages: returns null for empty input', () => {
+  const result = stackImages([], createMockCanvas);
+  assert.equal(result.canvas, null);
+});
+
+test('stackImages: single image dimensions preserved', () => {
+  const img = makeSyntheticImage(100, 200);
+  const result = stackImages([img], createMockCanvas);
+  assert.equal(result.canvas.width, 100);
+  assert.equal(result.canvas.height, 200);
+});
+
+test('stackImages: two images stacked with separator', () => {
+  const img1 = makeSyntheticImage(100, 200);
+  const img2 = makeSyntheticImage(100, 300);
+  const result = stackImages([img1, img2], createMockCanvas);
+  assert.equal(result.canvas.width, 100);
+  assert.equal(result.canvas.height, 502); // 200 + 2 + 300
+});
+
+test('stackImages: three images stacked with separators', () => {
+  const img1 = makeSyntheticImage(100, 100);
+  const img2 = makeSyntheticImage(100, 150);
+  const img3 = makeSyntheticImage(100, 200);
+  const result = stackImages([img1, img2, img3], createMockCanvas);
+  assert.equal(result.canvas.width, 100);
+  assert.equal(result.canvas.height, 454); // 100 + 2 + 150 + 2 + 200
 });
