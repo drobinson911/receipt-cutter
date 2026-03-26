@@ -8,6 +8,7 @@ export class CaptureSession {
     this.photos = []; // Array of { id, originalImg, croppedCanvas, brightness, fileName }
     this.nextId = 1;
     this.onChange = null; // callback when photos array changes
+    this.stitchMode = 'smart';
   }
 
   /**
@@ -203,6 +204,7 @@ export class CaptureSession {
   clear() {
     this.photos = [];
     this.nextId = 1;
+    this.stitchMode = 'smart';
     if (this.onChange) this.onChange();
   }
 

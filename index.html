@@ -483,6 +483,36 @@
     .vf-flash-effect.active {
       opacity: 0.8;
     }
+
+    /* ─── Stitch mode toggle ─────────────────────────────────────── */
+    .stitch-mode-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+    }
+
+    .stitch-mode-label {
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    .stitch-mode-btn {
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+
+    .stitch-mode-btn.active {
+      background: var(--primary);
+      color: #fff;
+      border-color: var(--primary);
+    }
   </style>
 </head>
 <body>
@@ -530,6 +560,11 @@
       <div class="btn-group">
         <button class="btn btn-primary" id="btn-add-photo">📷 Add Photo</button>
         <button class="btn btn-secondary" id="btn-add-file">📁 Add File</button>
+      </div>
+      <div class="stitch-mode-toggle" id="stitch-mode-toggle" style="margin-top: 12px;">
+        <span class="stitch-mode-label">Stitch mode:</span>
+        <button class="stitch-mode-btn active" id="btn-mode-smart" data-mode="smart">Smart Stitch</button>
+        <button class="stitch-mode-btn" id="btn-mode-stack" data-mode="stack">Stack Only</button>
       </div>
       <div class="btn-group" style="margin-top: 10px;">
         <button class="btn btn-success" id="btn-done" disabled>Done - Stitch &amp; Convert</button>
@@ -794,6 +829,22 @@
       btnDone.disabled = session.photos.length === 0;
     };
 
+    // ─── Stitch Mode Toggle ──────────────────────────────────────────────────
+    const btnModeSmart = document.getElementById('btn-mode-smart');
+    const btnModeStack = document.getElementById('btn-mode-stack');
+
+    btnModeSmart.addEventListener('click', () => {
+      session.stitchMode = 'smart';
+      btnModeSmart.classList.add('active');
+      btnModeStack.classList.remove('active');
+    });
+
+    btnModeStack.addEventListener('click', () => {
+      session.stitchMode = 'stack';
+      btnModeStack.classList.add('active');
+      btnModeSmart.classList.remove('active');
+    });
+
     function renderPhotoList() {
       photoList.innerHTML = '';
       session.photos.forEach((photo, index) => {
@@ -891,7 +942,7 @@
         resultCanvas = session.photos[0].croppedCanvas;
       } else {
         // Multiple photos: stitch
-        const stitchResult = stitchImages(session.getStitchInput());
+        const stitchResult = stitchImages(session.getStitchInput(), session.stitchMode);
         resultCanvas = stitchResult.canvas;
         warnings = stitchResult.warnings;
       }
