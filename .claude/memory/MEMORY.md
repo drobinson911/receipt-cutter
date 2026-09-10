@@ -1,0 +1,3 @@
+- [FoodMaxx footer-trim rule](foodmaxx_trim_rule.md) — on FoodMaxx receipts, cut after the `THAT IS A SAVINGS OF __%` line and discard the duplicate card slip + survey + coupon below it.
+- [Headless cutter + paused automation](headless_cutter_and_automation.md) — `tools/cut_receipt.py` headless-ports the app's PDF cut logic (2-col letter, real-size, cut between lines). Automation design paused mid-brainstorm; requirements captured (Google Drive, name=Robinson, fully-automatic).
+- [Receipts source folder](receipts_source_folder.md) — scans land in `C:\Users\drobi\OneDrive\ScanSnap\Receipts` on the gaming PC; reach them from the iMac via `ssh build-server` at `/mnt/c/Users/drobi/OneDrive/ScanSnap/Receipts`. Read tall scans by slicing into strips.
