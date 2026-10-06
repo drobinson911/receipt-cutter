@@ -62,25 +62,29 @@ def cols_per_page(sw, pw, m, g):
         cols += 1
     return cols
 
-def main(src, out):
-    img = Image.open(src).convert('RGB')
+def cut(src, out, log=print, search=SEARCH_RANGE):
+    """Cut `src` (path or PIL Image) into the 2-column letter PDF `out`.
+    `search` = how far (px) a cut may move from each 3090px interval to find whitespace.
+    Returns the geometry so callers can verify the cut (receipt bot)."""
+    img = (src if isinstance(src, Image.Image) else Image.open(src)).convert('RGB')
     W, H = img.size
     arr = np.asarray(img).astype(np.float32)
     row_bright = arr.mean(axis=(1, 2))            # per-row mean of (R+G+B)/3
     row_ink = (np.asarray(img.convert('L')) < INK_LEVEL).sum(axis=1)   # ink pixels per row
+    del arr
 
-    cuts = find_cut_points(row_bright, H, USABLE_H, SEARCH_RANGE, BRIGHTNESS_THRESHOLD, row_ink)
+    cuts = find_cut_points(row_bright, H, USABLE_H, search, BRIGHTNESS_THRESHOLD, row_ink)
     num_strips = len(cuts) - 1
     cols = cols_per_page(W, PAGE_W, MARGIN, GAP)
     num_pages = math.ceil(num_strips / cols)
 
     # Report cut geometry so we can verify no strip exceeds usable height
     heights = [cuts[i+1]-cuts[i] for i in range(num_strips)]
-    print(f"img {W}x{H}  strips={num_strips}  cols/page={cols}  pages={num_pages}")
-    print(f"strip heights: {heights}  (USABLE_H={USABLE_H})")
-    print(f"cut points: {cuts}")
+    log(f"img {W}x{H}  strips={num_strips}  cols/page={cols}  pages={num_pages}")
+    log(f"strip heights: {heights}  (USABLE_H={USABLE_H})")
+    log(f"cut points: {cuts}")
     ink_on_cuts = [(c, int(row_ink[c])) for c in cuts[1:-1]]
-    print(f"ink pixels on each interior cut row (must be 0): {ink_on_cuts}")
+    log(f"ink pixels on each interior cut row (must be 0): {ink_on_cuts}")
 
     pages = []
     for p in range(num_pages):
@@ -96,7 +100,12 @@ def main(src, out):
         pages.append(page)
 
     pages[0].save(out, save_all=True, append_images=pages[1:], resolution=float(DPI))
-    print(f"wrote {out}  ({num_pages} pages)")
+    log(f"wrote {out}  ({num_pages} pages)")
+    return {"width": W, "height": H, "cuts": cuts, "strip_heights": heights,
+            "cols_per_page": cols, "pages": num_pages, "ink_on_cuts": ink_on_cuts}
+
+def main(src, out):
+    cut(src, out)
 
 if __name__ == '__main__':
     main(sys.argv[1], sys.argv[2])
