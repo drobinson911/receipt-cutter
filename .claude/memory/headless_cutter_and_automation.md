@@ -7,12 +7,15 @@ metadata:
 
 **`tools/cut_receipt.py`** — a headless Python (Pillow+numpy) port of the app's `generatePdf` (js/pdf-generator.js + js/image-processing.js). Faithfully reproduces: `getRowBrightness`, `findCutPoints` (snap cuts to whitespace rows >240 within ±225px of each 3090px interval), `calcColumnsPerPage`, 300-DPI letter pages (2550×3300), strips pasted 1:1 (real size, never shrunk), centered columns. Usage: `python3 tools/cut_receipt.py IN.jpg OUT.pdf`. First real output: `20260703_Robinson_FoodMaxx.pdf` (2 pages, verified cuts land between text lines).
 
-**Automation design — PAUSED** (Donald: "getting too deep, continue later"). Requirements gathered so far for an auto-cut+auto-name pipeline:
-- Trigger: **fully automatic** (watch a folder for new scans)
-- Storage: **Google Drive** — Claude HAS a working Drive connector (drobinson911@gmail.com), NO OneDrive connector. Moving scans to Drive lets the always-on iMac bot do everything without the gaming PC being on. See [[receipts_source_folder]].
-- Naming: `YYYYMMDD_Robinson_Store` — **name always "Robinson"** (Donald edits the rare exception); date + store read off the receipt.
-- Output constraints (HARD): every purchase line included; cut ONLY between text lines; US-Letter; **2 columns**; however many pages; **real size or larger, NEVER shrunk**.
-- Multiple purchasers exist but default-to-Robinson chosen, so no card→name lookup.
-- STILL OPEN when resuming: (Q4) sharing scope for other purchasers — self-serve hosted PWA link vs. auto-pipeline for their scans vs. both; and the cut engine — Claude-in-the-loop reading each receipt for date/store vs. pure OCR (tesseract).
-
-Process note: this is mid-`brainstorming` skill. Resume by finishing clarifiers → propose approaches → design doc → writing-plans. Do NOT build the watcher/pipeline before design approval.
+**Automation — BUILT 2026-10-06 (`receipt_bot/`, systemd user timer `receipt-bot.timer`, every 2 min).**
+Scope per Donald (2026-10-06): exactly the manual procedure, nothing more. Poll `gdrive:ScanSnap/Receipts/` (top level) →
+download → OCR (tesseract, whitespace strips) only for **store + date** (headless `claude -p` Sonnet on the first 2
+strips only if OCR can't) → vendor trim rule → `tools/cut_receipt.py` → two checks: **no line sliced** (0 ink on every
+cut row) and **no line dropped** (PDF rasterised back, each strip lifted from its column and every text band of the
+trimmed scan must be inked at the same rows; no stray ink) → `Cut/YYYYMMDD_Robinson_Store.pdf`, original → `Done/`,
+Discord "Receipt cut: <name>" + PDF. **No totals / item counts / card digits** (Donald: "just cut the receipt like we have been").
+Failure → `Needs-Review/` + "⚠️ Receipt needs attention: <file> — <reason>; Claude is on it" + a job in `~/uas-ops/queue/`
+for the forge ops responder (Receipts playbook in `~/uas-ops/RESPONDER.md`; it fixes via `python -m receipt_bot retry NAME
+[--vendor/--date/--trim-row/--no-trim/--search-range]`, code fixes only via `tools/responder-fix.sh` = tests gate the merge).
+State `~/.local/state/receipt-bot/state.json` (by Drive file ID; never reprocessed). Tests: `.venv/bin/python -m pytest tests/py`
+(real-receipt fixture lives OUTSIDE git at `~/.local/share/receipt-bot/fixtures/` — the GitHub repo is PUBLIC, never commit scans).

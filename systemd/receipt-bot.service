@@ -1,0 +1,19 @@
+# Receipt bot: one pass over gdrive:ScanSnap/Receipts/ (cut new scans, file them, ping Donald).
+# Installed copy: ~/.config/systemd/user/receipt-bot.service (from ~/receipt-cutter/systemd/).
+# Logs: journalctl --user -u receipt-bot.service
+[Unit]
+Description=Receipt bot (ScanSnap Drive scans -> cut PDF)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/receipt-cutter
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStartPre=/bin/mkdir -p %h/.local/state/receipt-bot
+# -E 0: if a previous pass (or a manual run) still holds the lock, skip quietly
+ExecStart=/usr/bin/flock -n -E 0 %h/.local/state/receipt-bot/unit.lock %h/receipt-cutter/.venv/bin/python -m receipt_bot poll
+MemoryMax=1536M
+MemorySwapMax=256M
+TimeoutStartSec=20min
+Nice=10
