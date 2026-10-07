@@ -36,9 +36,38 @@ def _token() -> str | None:
     return None
 
 
+def discord_copy(pdf: str, log=print) -> str | None:
+    """A PDF that fits the bot upload cap. The Drive copy is never touched; only an oversized
+    Discord copy is re-encoded (grayscale JPEG pages, same 300 dpi, same layout)."""
+    if os.path.getsize(pdf) <= MAX_ATTACH:
+        return pdf
+    import subprocess
+    import tempfile
+    from PIL import Image
+    tmp = tempfile.mkdtemp(prefix="receipt-discord-")
+    subprocess.run(["pdftoppm", "-r", "300", "-gray", "-png", pdf, os.path.join(tmp, "p")], check=True, timeout=300)
+    pages = [Image.open(os.path.join(tmp, f)).convert("L") for f in sorted(os.listdir(tmp)) if f.endswith(".png")]
+    out = os.path.join(tmp, os.path.basename(pdf))
+    for q in (75, 55, 40):
+        pages[0].save(out, save_all=True, append_images=pages[1:], resolution=300.0, quality=q)
+        if os.path.getsize(out) <= MAX_ATTACH:
+            log(f"discord: {os.path.basename(pdf)} {os.path.getsize(pdf) / 1e6:.1f} MB → grayscale copy "
+                f"{os.path.getsize(out) / 1e6:.1f} MB (q{q}) for the upload")
+            return out
+    return None
+
+
+def _post(url: str, headers: dict, body: bytes) -> dict | None:
+    req = urllib.request.Request(url, body, headers, method="POST")
+    with urllib.request.urlopen(req, timeout=90) as r:
+        return json.loads(r.read() or b"{}") if 200 <= r.status < 300 else None
+
+
 def send(text: str, attach: str | None = None, log=print) -> bool:
+    """Post `text` (and the PDF `attach`, always as a file — never a link) to Donald's channel.
+    One retry after 10 s. True only if Discord confirms the message (and the attachment)."""
     if os.environ.get("RECEIPT_BOT_NO_DISCORD"):
-        log(f"discord (suppressed): {text}")
+        log(f"discord (suppressed): {text}" + (f" [+ {os.path.basename(attach)}]" if attach else ""))
         return True
     tok, channel = _token(), _channel()
     if not tok or not channel:
@@ -47,23 +76,33 @@ def send(text: str, attach: str | None = None, log=print) -> bool:
     url = f"https://discord.com/api/v10/channels/{channel}/messages"
     payload = {"content": text[:1900], "allowed_mentions": {"parse": []}}
     headers = {"Authorization": f"Bot {tok}", "User-Agent": "forge-receipt-bot/1.0"}
-    if attach and os.path.getsize(attach) <= MAX_ATTACH:
+    file = discord_copy(attach, log) if attach else None
+    if attach and file is None:
+        payload["content"] = (text + f" (PDF {os.path.getsize(attach) / 1e6:.0f} MB is too big for Discord even "
+                              "re-encoded; it's in Drive Cut/)")[:1900]
+    if file:
         b = uuid.uuid4().hex
         fn = os.path.basename(attach)
         payload["attachments"] = [{"id": 0, "filename": fn}]
         body = (f"--{b}\r\nContent-Disposition: form-data; name=\"payload_json\"\r\n"
                 f"Content-Type: application/json\r\n\r\n{json.dumps(payload)}\r\n"
                 f"--{b}\r\nContent-Disposition: form-data; name=\"files[0]\"; filename=\"{fn}\"\r\n"
-                f"Content-Type: application/pdf\r\n\r\n").encode() + open(attach, "rb").read() + f"\r\n--{b}--\r\n".encode()
+                f"Content-Type: application/pdf\r\n\r\n").encode() + open(file, "rb").read() + f"\r\n--{b}--\r\n".encode()
         headers["Content-Type"] = f"multipart/form-data; boundary={b}"
     else:
         body = json.dumps(payload).encode()
         headers["Content-Type"] = "application/json"
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, body, headers, method="POST"), timeout=60) as r:
-            ok = 200 <= r.status < 300
-    except Exception as e:  # noqa: BLE001 — never let a ping failure crash processing
-        log(f"discord: delivery FAILED ({type(e).__name__}: {str(e)[:120]})")
-        return False
-    log(f"discord: sent{' with ' + os.path.basename(attach) if attach and 'attachments' in payload else ''}")
-    return ok
+    import time
+    for attempt in (1, 2):
+        try:
+            resp = _post(url, headers, body)
+            got = [a.get("filename") for a in (resp or {}).get("attachments", [])]
+            if resp is not None and (not file or got):
+                log(f"discord: sent (message {resp.get('id')})" + (f" with attachment {got[0]}" if got else ""))
+                return True
+            log(f"discord: attempt {attempt}: Discord did not confirm the attachment")
+        except Exception as e:  # noqa: BLE001 — never let a ping failure crash processing
+            log(f"discord: attempt {attempt} FAILED ({type(e).__name__}: {str(e)[:120]})")
+        if attempt == 1:
+            time.sleep(10)
+    return False
